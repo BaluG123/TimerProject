@@ -1,4 +1,3 @@
-// src/screens/HistoryScreen.js
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -6,36 +5,28 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Share,
-  Alert
+  Share
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Picker } from '@react-native-picker/picker';
+import { storage } from '../utils/storage';
 
 const HistoryScreen = () => {
   const [history, setHistory] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [categories, setCategories] = useState(['All']);
+
+  const loadHistory = async () => {
+    const historyData = await storage.getHistory();
+    setHistory(historyData.sort((a, b) => 
+      new Date(b.completedAt) - new Date(a.completedAt)
+    ));
+  };
 
   useEffect(() => {
     loadHistory();
   }, []);
 
-  const loadHistory = async () => {
-    try {
-      const historyData = await AsyncStorage.getItem('timerHistory');
-      if (historyData) {
-        const parsedHistory = JSON.parse(historyData);
-        setHistory(parsedHistory);
-        
-        // Extract unique categories
-        const uniqueCategories = [...new Set(parsedHistory.map(item => item.category))];
-        setCategories(['All', ...uniqueCategories]);
-      }
-    } catch (error) {
-      console.error('Error loading history:', error);
-      Alert.alert('Error', 'Failed to load timer history');
-    }
+  const getCategories = () => {
+    const categories = [...new Set(history.map(item => item.category))];
+    return ['All', ...categories];
   };
 
   const formatDate = (dateString) => {
@@ -45,120 +36,69 @@ const HistoryScreen = () => {
 
   const exportHistory = async () => {
     try {
-      const historyString = JSON.stringify(history, null, 2);
+      const exportData = JSON.stringify(history, null, 2);
       await Share.share({
-        message: historyString,
+        message: exportData,
         title: 'Timer History Export'
       });
     } catch (error) {
       console.error('Error exporting history:', error);
-      Alert.alert('Error', 'Failed to export timer history');
     }
   };
 
-  const clearHistory = async () => {
-    Alert.alert(
-      'Clear History',
-      'Are you sure you want to clear all timer history?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        },
-        {
-          text: 'Clear',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AsyncStorage.setItem('timerHistory', '[]');
-              setHistory([]);
-              setCategories(['All']);
-              setSelectedCategory('All');
-            } catch (error) {
-              console.error('Error clearing history:', error);
-              Alert.alert('Error', 'Failed to clear timer history');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const filteredHistory = history.filter(item => 
-    selectedCategory === 'All' || item.category === selectedCategory
-  );
-
   const renderHistoryItem = ({ item }) => (
     <View style={styles.historyItem}>
-      <View style={styles.historyHeader}>
-        <Text style={styles.historyName}>{item.name}</Text>
-        <Text style={styles.historyCategory}>{item.category}</Text>
-      </View>
-      <View style={styles.historyDetails}>
-        <Text style={styles.historyDuration}>
-          Duration: {item.duration} seconds
-        </Text>
-        <Text style={styles.historyDate}>
-          Completed: {formatDate(item.completedAt)}
-        </Text>
-      </View>
+      <Text style={styles.itemTitle}>{item.name}</Text>
+      <Text style={styles.itemDetail}>Category: {item.category}</Text>
+      <Text style={styles.itemDetail}>Duration: {item.duration} seconds</Text>
+      <Text style={styles.itemDetail}>Completed: {formatDate(item.completedAt)}</Text>
     </View>
   );
 
+  const filteredHistory = selectedCategory === 'All' 
+    ? history 
+    : history.filter(item => item.category === selectedCategory);
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.filterContainer}>
-          <Text style={styles.filterLabel}>Filter by Category:</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={selectedCategory}
-              onValueChange={setSelectedCategory}
-              style={styles.picker}
+      <Text style={styles.title}>Timer History</Text>
+      
+      <View style={styles.filterContainer}>
+        <FlatList
+          horizontal
+          data={getCategories()}
+          keyExtractor={(item) => item}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[
+                styles.filterButton,
+                selectedCategory === item && styles.filterButtonActive
+              ]}
+              onPress={() => setSelectedCategory(item)}
             >
-              {categories.map((category) => (
-                <Picker.Item
-                  key={category}
-                  label={category}
-                  value={category}
-                />
-              ))}
-            </Picker>
-          </View>
-        </View>
-
-        <View style={styles.actions}>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={exportHistory}
-          >
-            <Text style={styles.actionButtonText}>Export</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.clearButton]}
-            onPress={clearHistory}
-          >
-            <Text style={[styles.actionButtonText, styles.clearButtonText]}>
-              Clear All
-            </Text>
-          </TouchableOpacity>
-        </View>
+              <Text style={[
+                styles.filterButtonText,
+                selectedCategory === item && styles.filterButtonTextActive
+              ]}>
+                {item}
+              </Text>
+            </TouchableOpacity>
+          )}
+          showsHorizontalScrollIndicator={false}
+        />
       </View>
 
-      {filteredHistory.length > 0 ? (
-        <FlatList
-          data={filteredHistory}
-          renderItem={renderHistoryItem}
-          keyExtractor={item => item.completedAt}
-          contentContainerStyle={styles.list}
-        />
-      ) : (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyStateText}>
-            No timer history found
-          </Text>
-        </View>
-      )}
+      <TouchableOpacity style={styles.exportButton} onPress={exportHistory}>
+        <Text style={styles.exportButtonText}>Export History</Text>
+      </TouchableOpacity>
+
+      <FlatList
+        data={filteredHistory}
+        keyExtractor={(item) => item.completedAt}
+        renderItem={renderHistoryItem}
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+      />
     </View>
   );
 };
@@ -166,109 +106,65 @@ const HistoryScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  header: {
-    padding: 16,
+    padding: 20,
     backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
   },
   filterContainer: {
-    marginBottom: 12,
+    marginBottom: 15,
   },
-  filterLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
+  filterButton: {
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    marginRight: 10,
   },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  picker: {
-    height: 50,
-  },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  actionButton: {
-    flex: 1,
+  filterButtonActive: {
     backgroundColor: '#007AFF',
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginHorizontal: 4,
   },
-  clearButton: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#FF3B30',
+  filterButtonText: {
+    color: '#333',
   },
-  actionButtonText: {
+  filterButtonTextActive: {
     color: '#fff',
-    textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '600',
   },
-  clearButtonText: {
-    color: '#FF3B30',
+  exportButton: {
+    backgroundColor: '#007AFF',
+    padding: 12,
+    borderRadius: 5,
+    marginBottom: 15,
+    alignItems: 'center',
+  },
+  exportButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
   },
   list: {
-    padding: 16,
+    flex: 1,
+  },
+  listContent: {
+    paddingBottom: 20,
   },
   historyItem: {
-    backgroundColor: '#fff',
+    backgroundColor: '#f5f5f5',
+    padding: 15,
     borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    marginBottom: 10,
   },
-  historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  historyName: {
+  itemTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: 'bold',
+    marginBottom: 5,
   },
-  historyCategory: {
-    fontSize: 14,
+  itemDetail: {
     color: '#666',
-    backgroundColor: '#f0f0f0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  historyDetails: {
-    marginTop: 8,
-  },
-  historyDuration: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
-  historyDate: {
-    fontSize: 14,
-    color: '#666',
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    color: '#666',
+    marginBottom: 3,
   },
 });
 

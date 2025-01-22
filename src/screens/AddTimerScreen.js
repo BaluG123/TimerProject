@@ -1,202 +1,132 @@
-// src/screens/AddTimerScreen.js
 import React, { useState } from 'react';
 import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
-  ScrollView,
+  TouchableOpacity,
   Alert
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Picker } from '@react-native-picker/picker';
-
-const CATEGORIES = ['Workout', 'Study', 'Break', 'Work', 'Personal'];
+import { storage } from '../utils/storage';
 
 const AddTimerScreen = ({ navigation }) => {
   const [name, setName] = useState('');
   const [duration, setDuration] = useState('');
-  const [category, setCategory] = useState(CATEGORIES[0]);
-  const [hasHalfwayAlert, setHasHalfwayAlert] = useState(false);
+  const [category, setCategory] = useState('Workout');
 
-  const validateInputs = () => {
-    if (!name.trim()) {
-      Alert.alert('Error', 'Please enter a timer name');
-      return false;
-    }
-    
-    const durationNum = parseInt(duration);
-    if (isNaN(durationNum) || durationNum <= 0) {
-      Alert.alert('Error', 'Please enter a valid duration in seconds');
-      return false;
-    }
-    
-    return true;
-  };
+  const categories = ['Workout', 'Study', 'Break', 'Other'];
 
   const handleSave = async () => {
-    if (!validateInputs()) return;
+    if (!name || !duration) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
 
-    try {
-      // Get existing timers
-      const existingTimers = await AsyncStorage.getItem('timers');
-      const timers = existingTimers ? JSON.parse(existingTimers) : [];
-      
-      // Create new timer
-      const newTimer = {
-        id: Date.now().toString(),
-        name: name.trim(),
-        duration: parseInt(duration),
-        category,
-        hasHalfwayAlert,
-        createdAt: new Date().toISOString()
-      };
-      
-      // Add to existing timers
-      timers.push(newTimer);
-      
-      // Save back to storage
-      await AsyncStorage.setItem('timers', JSON.stringify(timers));
-      
-      // Navigate back to home
+    const newTimer = {
+      id: Date.now().toString(),
+      name,
+      duration: parseInt(duration),
+      category,
+      status: 'Paused',
+      remainingTime: parseInt(duration),
+      createdAt: new Date().toISOString()
+    };
+
+    const success = await storage.saveTimer(newTimer);
+    if (success) {
+      Alert.alert('Success', 'Timer created successfully');
       navigation.goBack();
-    } catch (error) {
-      console.error('Error saving timer:', error);
-      Alert.alert('Error', 'Failed to save timer. Please try again.');
+    } else {
+      Alert.alert('Error', 'Failed to create timer');
     }
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.form}>
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Timer Name</Text>
-          <TextInput
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            placeholder="Enter timer name"
-            maxLength={30}
-          />
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Duration (seconds)</Text>
-          <TextInput
-            style={styles.input}
-            value={duration}
-            onChangeText={setDuration}
-            placeholder="Enter duration in seconds"
-            keyboardType="number-pad"
-          />
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Category</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={category}
-              onValueChange={setCategory}
-              style={styles.picker}
-            >
-              {CATEGORIES.map((cat) => (
-                <Picker.Item key={cat} label={cat} value={cat} />
-              ))}
-            </Picker>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={styles.alertToggle}
-          onPress={() => setHasHalfwayAlert(!hasHalfwayAlert)}
-        >
-          <View style={[
-            styles.checkbox,
-            hasHalfwayAlert && styles.checkboxChecked
-          ]} />
-          <Text style={styles.alertText}>
-            Enable halfway alert
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.saveButton}
-          onPress={handleSave}
-        >
-          <Text style={styles.saveButtonText}>Save Timer</Text>
-        </TouchableOpacity>
+    <View style={styles.container}>
+      <Text style={styles.title}>Create New Timer</Text>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.label}>Name</Text>
+        <TextInput
+          style={styles.input}
+          value={name}
+          onChangeText={setName}
+          placeholder="Enter timer name"
+        />
       </View>
-    </ScrollView>
+
+      <View style={styles.inputContainer}>
+        <Text style={styles.label}>Duration (seconds)</Text>
+        <TextInput
+          style={styles.input}
+          value={duration}
+          onChangeText={setDuration}
+          placeholder="Enter duration"
+          keyboardType="numeric"
+        />
+      </View>
+
+      <View style={styles.inputContainer}>
+        <Text style={styles.label}>Category</Text>
+        <Picker
+          selectedValue={category}
+          onValueChange={(itemValue) => setCategory(itemValue)}
+          style={styles.picker}
+        >
+          {categories.map((cat) => (
+            <Picker.Item key={cat} label={cat} value={cat} />
+          ))}
+        </Picker>
+      </View>
+
+      <TouchableOpacity style={styles.button} onPress={handleSave}>
+        <Text style={styles.buttonText}>Save Timer</Text>
+      </TouchableOpacity>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    padding: 20,
+    backgroundColor: '#fff',
   },
-  form: {
-    padding: 16,
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
   },
-  formGroup: {
+  inputContainer: {
     marginBottom: 20,
   },
   label: {
     fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-    color: '#333',
+    marginBottom: 5,
   },
   input: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#ccc',
+    borderRadius: 5,
+    padding: 10,
     fontSize: 16,
-  },
-  pickerContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    overflow: 'hidden',
   },
   picker: {
-    height: 50,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 5,
   },
-  alertToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#007AFF',
-    marginRight: 8,
-  },
-  checkboxChecked: {
+  button: {
     backgroundColor: '#007AFF',
-  },
-  alertText: {
-    fontSize: 16,
-    color: '#333',
-  },
-  saveButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 14,
-    borderRadius: 8,
+    padding: 15,
+    borderRadius: 5,
     alignItems: 'center',
   },
-  saveButtonText: {
+  buttonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
 });
 

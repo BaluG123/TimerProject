@@ -1,111 +1,203 @@
-// src/screens/HomeScreen.js
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  ScrollView, 
+import {
+  View,
+  Text,
   StyleSheet,
+  FlatList,
   TouchableOpacity,
-  Text 
+  Alert
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import CategoryGroup from '../components/timer/CategoryGroup';
-import Modal from '../components/common/Modal';
-import { useNavigation } from '@react-navigation/native';
+import { storage } from '../utils/storage';
 
-const HomeScreen = () => {
-  const navigation = useNavigation();
-  const [timers, setTimers] = useState([]);
-  const [completedTimer, setCompletedTimer] = useState(null);
-  const [halfwayAlert, setHalfwayAlert] = useState(null);
+const TimerItem = ({ timer, onUpdate }) => {
+  const [remainingTime, setRemainingTime] = useState(timer.remainingTime);
+  const [intervalId, setIntervalId] = useState(null);
+
+  const updateTimer = async (newStatus, newRemainingTime) => {
+    const updatedTimer = {
+      ...timer,
+      status: newStatus,
+      remainingTime: newRemainingTime
+    };
+    await storage.updateTimer(updatedTimer);
+    onUpdate();
+  };
+
+  const handleStart = () => {
+    if (timer.status === 'Paused') {
+      const id = setInterval(() => {
+        setRemainingTime((prev) => {
+          if (prev <= 1) {
+            clearInterval(id);
+            updateTimer('Completed', 0);
+            Alert.alert('Timer Complete!', `${timer.name} has finished!`);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      setIntervalId(id);
+      updateTimer('Running', remainingTime);
+    }
+  };
+
+  const handlePause = () => {
+    if (intervalId) {
+      clearInterval(intervalId);
+      setIntervalId(null);
+    }
+    updateTimer('Paused', remainingTime);
+  };
+
+  const handleReset = () => {
+    if (intervalId) {
+      clearInterval(intervalId);
+      setIntervalId(null);
+    }
+    setRemainingTime(timer.duration);
+    updateTimer('Paused', timer.duration);
+  };
 
   useEffect(() => {
-    loadTimers();
-  }, []);
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [intervalId]);
+
+  const progress = (remainingTime / timer.duration) * 100;
+
+  return (
+    <View style={styles.timerItem}>
+      <Text style={styles.timerName}>{timer.name}</Text>
+      <Text>Category: {timer.category}</Text>
+      <Text>Time Remaining: {remainingTime}s</Text>
+      <Text>Status: {timer.status}</Text>
+      
+      <View style={styles.progressBar}>
+        <View 
+          style={[styles.progressFill, { width: `${progress}%` }]} 
+        />
+      </View>
+
+      <View style={styles.buttonRow}>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={handleStart}
+          disabled={timer.status === 'Running' || timer.status === 'Completed'}
+        >
+          <Text style={styles.buttonText}>Start</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={handlePause}
+          disabled={timer.status !== 'Running'}
+        >
+          <Text style={styles.buttonText}>Pause</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={handleReset}
+        >
+          <Text style={styles.buttonText}>Reset</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+const HomeScreen = ({ navigation }) => {
+  const [timers, setTimers] = useState([]);
+  const [categories, setCategories] = useState([]);
 
   const loadTimers = async () => {
-    try {
-      const stored = await AsyncStorage.getItem('timers');
-      if (stored) {
-        setTimers(JSON.parse(stored));
+    const loadedTimers = await storage.getTimers();
+    setTimers(loadedTimers);
+    const uniqueCategories = [...new Set(loadedTimers.map(timer => timer.category))];
+    setCategories(uniqueCategories);
+  };
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', loadTimers);
+    return unsubscribe;
+  }, [navigation]);
+
+  const handleBulkAction = async (category, action) => {
+    const categoryTimers = timers.filter(timer => timer.category === category);
+    for (const timer of categoryTimers) {
+      let updatedTimer = { ...timer };
+      switch (action) {
+        case 'start':
+          updatedTimer.status = 'Running';
+          break;
+        case 'pause':
+          updatedTimer.status = 'Paused';
+          break;
+        case 'reset':
+          updatedTimer.status = 'Paused';
+          updatedTimer.remainingTime = timer.duration;
+          break;
       }
-    } catch (error) {
-      console.error('Error loading timers:', error);
+      await storage.updateTimer(updatedTimer);
     }
+    loadTimers();
   };
 
-  const handleTimerComplete = async (timer) => {
-    setCompletedTimer(timer);
+  const renderCategory = ({ item: category }) => {
+    const categoryTimers = timers.filter(timer => timer.category === category);
     
-    // Save to history
-    try {
-      const history = await AsyncStorage.getItem('timerHistory') || '[]';
-      const historyData = JSON.parse(history);
-      historyData.push({
-        ...timer,
-        completedAt: new Date().toISOString()
-      });
-      await AsyncStorage.setItem('timerHistory', JSON.stringify(historyData));
-    } catch (error) {
-      console.error('Error saving to history:', error);
-    }
-  };
+    return (
+      <View style={styles.categoryContainer}>
+        <Text style={styles.categoryTitle}>{category}</Text>
+        
+        <View style={styles.bulkActions}>
+          <TouchableOpacity 
+            style={styles.bulkButton}
+            onPress={() => handleBulkAction(category, 'start')}
+          >
+            <Text style={styles.buttonText}>Start All</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.bulkButton}
+            onPress={() => handleBulkAction(category, 'pause')}
+          >
+            <Text style={styles.buttonText}>Pause All</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.bulkButton}
+            onPress={() => handleBulkAction(category, 'reset')}
+          >
+            <Text style={styles.buttonText}>Reset All</Text>
+          </TouchableOpacity>
+        </View>
 
-  const handleHalfwayAlert = (timerName) => {
-    setHalfwayAlert(timerName);
+        <FlatList
+          data={categoryTimers}
+          keyExtractor={(timer) => timer.id}
+          renderItem={({ item }) => (
+            <TimerItem timer={item} onUpdate={loadTimers} />
+          )}
+        />
+      </View>
+    );
   };
-
-  // Group timers by category
-  const groupedTimers = timers.reduce((groups, timer) => {
-    const category = timer.category || 'Uncategorized';
-    if (!groups[category]) {
-      groups[category] = [];
-    }
-    groups[category].push(timer);
-    return groups;
-  }, {});
 
   return (
     <View style={styles.container}>
-      <ScrollView>
-        {Object.entries(groupedTimers).map(([category, categoryTimers]) => (
-          <CategoryGroup
-            key={category}
-            category={category}
-            timers={categoryTimers}
-            onTimerComplete={handleTimerComplete}
-            onHalfwayAlert={handleHalfwayAlert}
-          />
-        ))}
-      </ScrollView>
+      <TouchableOpacity 
+        style={styles.addButton}
+        onPress={() => navigation.navigate('AddTimer')}
+      >
+        <Text style={styles.addButtonText}>Add New Timer</Text>
+      </TouchableOpacity>
 
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => navigation.navigate('AddTimer')}
-        >
-          <Text style={styles.addButtonText}>Add Timer</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={styles.historyButton}
-          onPress={() => navigation.navigate('History')}
-        >
-          <Text style={styles.historyButtonText}>View History</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Modal
-        visible={!!completedTimer}
-        onClose={() => setCompletedTimer(null)}
-        title="Timer Completed!"
-        message={`Congratulations! "${completedTimer?.name}" has been completed.`}
-      />
-
-      <Modal
-        visible={!!halfwayAlert}
-        onClose={() => setHalfwayAlert(null)}
-        title="Halfway Point"
-        message={`"${halfwayAlert}" has reached its halfway point!`}
+      <FlatList
+        data={categories}
+        keyExtractor={(category) => category}
+        renderItem={renderCategory}
       />
     </View>
   );
@@ -114,45 +206,78 @@ const HomeScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  footer: {
-    padding: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    padding: 20,
     backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
   },
   addButton: {
     backgroundColor: '#007AFF',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    flex: 1,
-    marginRight: 8,
+    padding: 15,
+    borderRadius: 5,
+    marginBottom: 20,
+    alignItems: 'center',
   },
   addButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
+    fontWeight: 'bold',
   },
-  historyButton: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
+  categoryContainer: {
+    marginBottom: 20,
+  },
+  categoryTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  bulkActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  bulkButton: {
+    backgroundColor: '#007AFF',
+    padding: 8,
+    borderRadius: 5,
     flex: 1,
-    marginLeft: 8,
-    borderWidth: 1,
-    borderColor: '#007AFF',
+    marginHorizontal: 5,
   },
-  historyButtonText: {
-    color: '#007AFF',
-    fontSize: 16,
-    fontWeight: '600',
+  buttonText: {
+    color: '#fff',
     textAlign: 'center',
+  },
+  timerItem: {
+    backgroundColor: '#f5f5f5',
+    padding: 15,
+    borderRadius: 5,
+    marginBottom: 10,
+  },
+  timerName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  progressBar: {
+    height: 10,
+    backgroundColor: '#ddd',
+    borderRadius: 5,
+    marginVertical: 10,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#007AFF',
+    borderRadius: 5,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  actionButton: {
+    backgroundColor: '#007AFF',
+    padding: 8,
+    borderRadius: 5,
+    flex: 1,
+    marginHorizontal: 5,
   },
 });
 
