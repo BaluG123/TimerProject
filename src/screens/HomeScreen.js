@@ -1,288 +1,3 @@
-// import React, { useState, useEffect } from 'react';
-// import {
-//   View,
-//   Text,
-//   StyleSheet,
-//   FlatList,
-//   TouchableOpacity,
-//   Alert
-// } from 'react-native';
-// import { storage } from '../utils/storage';
-
-// const TimerItem = ({ timer, onUpdate }) => {
-//   const [remainingTime, setRemainingTime] = useState(timer.remainingTime);
-//   const [intervalId, setIntervalId] = useState(null);
-
-//   const updateTimer = async (newStatus, newRemainingTime) => {
-//     const updatedTimer = {
-//       ...timer,
-//       status: newStatus,
-//       remainingTime: newRemainingTime
-//     };
-//     await storage.updateTimer(updatedTimer);
-//     onUpdate();
-//   };
-
-//   const handleStart = () => {
-//     if (timer.status === 'Paused') {
-//       const id = setInterval(() => {
-//         setRemainingTime((prev) => {
-//           if (prev <= 1) {
-//             clearInterval(id);
-//             updateTimer('Completed', 0);
-//             Alert.alert('Timer Complete!', `${timer.name} has finished!`);
-//             return 0;
-//           }
-//           return prev - 1;
-//         });
-//       }, 1000);
-//       setIntervalId(id);
-//       updateTimer('Running', remainingTime);
-//     }
-//   };
-
-//   const handlePause = () => {
-//     if (intervalId) {
-//       clearInterval(intervalId);
-//       setIntervalId(null);
-//     }
-//     updateTimer('Paused', remainingTime);
-//   };
-
-//   const handleReset = () => {
-//     if (intervalId) {
-//       clearInterval(intervalId);
-//       setIntervalId(null);
-//     }
-//     setRemainingTime(timer.duration);
-//     updateTimer('Paused', timer.duration);
-//   };
-
-//   useEffect(() => {
-//     return () => {
-//       if (intervalId) {
-//         clearInterval(intervalId);
-//       }
-//     };
-//   }, [intervalId]);
-
-//   const progress = (remainingTime / timer.duration) * 100;
-
-//   return (
-//     <View style={styles.timerItem}>
-//       <Text style={styles.timerName}>{timer.name}</Text>
-//       <Text>Category: {timer.category}</Text>
-//       <Text>Time Remaining: {remainingTime}s</Text>
-//       <Text>Status: {timer.status}</Text>
-      
-//       <View style={styles.progressBar}>
-//         <View 
-//           style={[styles.progressFill, { width: `${progress}%` }]} 
-//         />
-//       </View>
-
-//       <View style={styles.buttonRow}>
-//         <TouchableOpacity 
-//           style={styles.actionButton}
-//           onPress={handleStart}
-//           disabled={timer.status === 'Running' || timer.status === 'Completed'}
-//         >
-//           <Text style={styles.buttonText}>Start</Text>
-//         </TouchableOpacity>
-        
-//         <TouchableOpacity 
-//           style={styles.actionButton}
-//           onPress={handlePause}
-//           disabled={timer.status !== 'Running'}
-//         >
-//           <Text style={styles.buttonText}>Pause</Text>
-//         </TouchableOpacity>
-        
-//         <TouchableOpacity 
-//           style={styles.actionButton}
-//           onPress={handleReset}
-//         >
-//           <Text style={styles.buttonText}>Reset</Text>
-//         </TouchableOpacity>
-//       </View>
-//     </View>
-//   );
-// };
-
-// const HomeScreen = ({ navigation }) => {
-//   const [timers, setTimers] = useState([]);
-//   const [categories, setCategories] = useState([]);
-
-//   const loadTimers = async () => {
-//     const loadedTimers = await storage.getTimers();
-//     setTimers(loadedTimers);
-//     const uniqueCategories = [...new Set(loadedTimers.map(timer => timer.category))];
-//     setCategories(uniqueCategories);
-//   };
-
-//   useEffect(() => {
-//     const unsubscribe = navigation.addListener('focus', loadTimers);
-//     return unsubscribe;
-//   }, [navigation]);
-
-//   const handleBulkAction = async (category, action) => {
-//     const categoryTimers = timers.filter(timer => timer.category === category);
-//     for (const timer of categoryTimers) {
-//       let updatedTimer = { ...timer };
-//       switch (action) {
-//         case 'start':
-//           updatedTimer.status = 'Running';
-//           break;
-//         case 'pause':
-//           updatedTimer.status = 'Paused';
-//           break;
-//         case 'reset':
-//           updatedTimer.status = 'Paused';
-//           updatedTimer.remainingTime = timer.duration;
-//           break;
-//       }
-//       await storage.updateTimer(updatedTimer);
-//     }
-//     loadTimers();
-//   };
-
-//   const renderCategory = ({ item: category }) => {
-//     const categoryTimers = timers.filter(timer => timer.category === category);
-    
-//     return (
-//       <View style={styles.categoryContainer}>
-//         <Text style={styles.categoryTitle}>{category}</Text>
-        
-//         <View style={styles.bulkActions}>
-//           <TouchableOpacity 
-//             style={styles.bulkButton}
-//             onPress={() => handleBulkAction(category, 'start')}
-//           >
-//             <Text style={styles.buttonText}>Start All</Text>
-//           </TouchableOpacity>
-//           <TouchableOpacity 
-//             style={styles.bulkButton}
-//             onPress={() => handleBulkAction(category, 'pause')}
-//           >
-//             <Text style={styles.buttonText}>Pause All</Text>
-//           </TouchableOpacity>
-//           <TouchableOpacity 
-//             style={styles.bulkButton}
-//             onPress={() => handleBulkAction(category, 'reset')}
-//           >
-//             <Text style={styles.buttonText}>Reset All</Text>
-//           </TouchableOpacity>
-//         </View>
-
-//         <FlatList
-//           data={categoryTimers}
-//           keyExtractor={(timer) => timer.id}
-//           renderItem={({ item }) => (
-//             <TimerItem timer={item} onUpdate={loadTimers} />
-//           )}
-//         />
-//       </View>
-//     );
-//   };
-
-//   return (
-//     <View style={styles.container}>
-//       <TouchableOpacity 
-//         style={styles.addButton}
-//         onPress={() => navigation.navigate('AddTimer')}
-//       >
-//         <Text style={styles.addButtonText}>Add New Timer</Text>
-//       </TouchableOpacity>
-
-//       <FlatList
-//         data={categories}
-//         keyExtractor={(category) => category}
-//         renderItem={renderCategory}
-//       />
-//     </View>
-//   );
-// };
-
-// const styles = StyleSheet.create({
-//   container: {
-//     flex: 1,
-//     padding: 20,
-//     backgroundColor: '#fff',
-//   },
-//   addButton: {
-//     backgroundColor: '#007AFF',
-//     padding: 15,
-//     borderRadius: 5,
-//     marginBottom: 20,
-//     alignItems: 'center',
-//   },
-//   addButtonText: {
-//     color: '#fff',
-//     fontSize: 16,
-//     fontWeight: 'bold',
-//   },
-//   categoryContainer: {
-//     marginBottom: 20,
-//   },
-//   categoryTitle: {
-//     fontSize: 20,
-//     fontWeight: 'bold',
-//     marginBottom: 10,
-//   },
-//   bulkActions: {
-//     flexDirection: 'row',
-//     justifyContent: 'space-between',
-//     marginBottom: 10,
-//   },
-//   bulkButton: {
-//     backgroundColor: '#007AFF',
-//     padding: 8,
-//     borderRadius: 5,
-//     flex: 1,
-//     marginHorizontal: 5,
-//   },
-//   buttonText: {
-//     color: '#fff',
-//     textAlign: 'center',
-//   },
-//   timerItem: {
-//     backgroundColor: '#f5f5f5',
-//     padding: 15,
-//     borderRadius: 5,
-//     marginBottom: 10,
-//   },
-//   timerName: {
-//     fontSize: 18,
-//     fontWeight: 'bold',
-//     marginBottom: 5,
-//   },
-//   progressBar: {
-//     height: 10,
-//     backgroundColor: '#ddd',
-//     borderRadius: 5,
-//     marginVertical: 10,
-//   },
-//   progressFill: {
-//     height: '100%',
-//     backgroundColor: '#007AFF',
-//     borderRadius: 5,
-//   },
-//   buttonRow: {
-//     flexDirection: 'row',
-//     justifyContent: 'space-between',
-//     marginTop: 10,
-//   },
-//   actionButton: {
-//     backgroundColor: '#007AFF',
-//     padding: 8,
-//     borderRadius: 5,
-//     flex: 1,
-//     marginHorizontal: 5,
-//   },
-// });
-
-// export default HomeScreen;
-
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -291,12 +6,24 @@ import {
   FlatList,
   TouchableOpacity,
   Alert,
-  Share
+  Share,
+  Platform
 } from 'react-native';
+import {
+  widthPercentageToDP as wp,
+  heightPercentageToDP as hp
+} from 'react-native-responsive-screen';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { storage } from '../utils/storage';
 
 const TimerItem = ({ timer, onUpdate, intervalRefs }) => {
   const [remainingTime, setRemainingTime] = useState(timer.remainingTime);
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const updateTimer = async (newStatus, newRemainingTime) => {
     const updatedTimer = {
@@ -353,32 +80,58 @@ const TimerItem = ({ timer, onUpdate, intervalRefs }) => {
   }, [timer.id]);
 
   const progress = (remainingTime / timer.duration) * 100;
+  const getStatusColor = () => {
+    switch (timer.status) {
+      case 'Running': return '#28a745';
+      case 'Paused': return '#ffc107';
+      case 'Completed': return '#dc3545';
+      default: return '#6c757d';
+    }
+  };
 
   return (
     <View style={styles.timerItem}>
-      <Text style={styles.timerName}>{timer.name}</Text>
-      <Text>Category: {timer.category}</Text>
-      <Text>Time Remaining: {remainingTime}s</Text>
-      <Text>Status: {timer.status}</Text>
+      <View style={styles.timerHeader}>
+        <View>
+          <Text style={styles.timerName}>{timer.name}</Text>
+          <Text style={styles.categoryText}>
+            <Icon name="folder-outline" size={wp('3.5%')} color="#666" />
+            {' '}{timer.category}
+          </Text>
+        </View>
+        <View style={[styles.statusBadge, { backgroundColor: getStatusColor() }]}>
+          <Text style={styles.statusText}>{timer.status}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.timeText}>
+        <Icon name="clock-outline" size={wp('4%')} color="#666" />
+        {' '}{formatTime(remainingTime)}
+      </Text>
       
-      <View style={styles.progressBar}>
-        <View style={[styles.progressFill, { width: `${progress}%` }]} />
+      <View style={styles.progressBarContainer}>
+        <View style={styles.progressBar}>
+          <View style={[styles.progressFill, { width: `${progress}%` }]} />
+        </View>
+        <Text style={styles.progressText}>{Math.round(progress)}%</Text>
       </View>
 
       <View style={styles.buttonRow}>
         <TouchableOpacity 
-          style={styles.actionButton}
+          style={[styles.actionButton, timer.status === 'Running' && styles.actionButtonDisabled]}
           onPress={handleStart}
           disabled={timer.status === 'Running' || timer.status === 'Completed'}
         >
+          <Icon name="play" size={wp('5%')} color="#fff" />
           <Text style={styles.buttonText}>Start</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
-          style={styles.actionButton}
+          style={[styles.actionButton, timer.status !== 'Running' && styles.actionButtonDisabled]}
           onPress={handlePause}
           disabled={timer.status !== 'Running'}
         >
+          <Icon name="pause" size={wp('5%')} color="#fff" />
           <Text style={styles.buttonText}>Pause</Text>
         </TouchableOpacity>
         
@@ -386,6 +139,7 @@ const TimerItem = ({ timer, onUpdate, intervalRefs }) => {
           style={styles.actionButton}
           onPress={handleReset}
         >
+          <Icon name="restart" size={wp('5%')} color="#fff" />
           <Text style={styles.buttonText}>Reset</Text>
         </TouchableOpacity>
       </View>
@@ -493,31 +247,36 @@ const HomeScreen = ({ navigation }) => {
       console.error('Export error:', error);
     }
   };
-
   const renderCategory = ({ item: category }) => {
     const categoryTimers = timers.filter(timer => timer.category === category);
     
     return (
       <View style={styles.categoryContainer}>
-        <Text style={styles.categoryTitle}>{category}</Text>
+        <View style={styles.categoryHeader}>
+          <Icon name="folder" size={wp('6%')} color="#007AFF" />
+          <Text style={styles.categoryTitle}>{category}</Text>
+        </View>
         
         <View style={styles.bulkActions}>
           <TouchableOpacity 
-            style={styles.bulkButton}
+            style={[styles.bulkButton, styles.startButton]}
             onPress={() => handleBulkAction(category, 'start')}
           >
+            <Icon name="play-circle" size={wp('5%')} color="#fff" />
             <Text style={styles.buttonText}>Start All</Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            style={styles.bulkButton}
+            style={[styles.bulkButton, styles.pauseButton]}
             onPress={() => handleBulkAction(category, 'pause')}
           >
+            <Icon name="pause-circle" size={wp('5%')} color="#fff" />
             <Text style={styles.buttonText}>Pause All</Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            style={styles.bulkButton}
+            style={[styles.bulkButton, styles.resetButton]}
             onPress={() => handleBulkAction(category, 'reset')}
           >
+            <Icon name="restart" size={wp('5%')} color="#fff" />
             <Text style={styles.buttonText}>Reset All</Text>
           </TouchableOpacity>
         </View>
@@ -544,6 +303,7 @@ const HomeScreen = ({ navigation }) => {
           style={styles.addButton}
           onPress={() => navigation.navigate('AddTimer')}
         >
+          <Icon name="plus" size={wp('5%')} color="#fff" />
           <Text style={styles.addButtonText}>Add New Timer</Text>
         </TouchableOpacity>
         
@@ -551,6 +311,7 @@ const HomeScreen = ({ navigation }) => {
           style={styles.exportButton}
           onPress={exportTimers}
         >
+          <Icon name="export" size={wp('5%')} color="#fff" />
           <Text style={styles.buttonText}>Export</Text>
         </TouchableOpacity>
       </View>
@@ -559,6 +320,7 @@ const HomeScreen = ({ navigation }) => {
         data={categories}
         keyExtractor={(category) => category}
         renderItem={renderCategory}
+        contentContainerStyle={styles.categoriesList}
       />
     </View>
   );
@@ -567,91 +329,203 @@ const HomeScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
+    padding: wp('4%'),
     backgroundColor: '#fff',
   },
   header: {
     flexDirection: 'row',
-    marginBottom: 20,
-    gap: 10,
+    marginBottom: hp('2%'),
+    gap: wp('2%'),
   },
   addButton: {
     flex: 1,
     backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 5,
+    padding: hp('2%'),
+    borderRadius: wp('2%'),
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: wp('2%'),
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
   exportButton: {
     backgroundColor: '#28a745',
-    padding: 15,
-    borderRadius: 5,
+    padding: hp('2%'),
+    borderRadius: wp('2%'),
     alignItems: 'center',
     justifyContent: 'center',
-    width: 80,
+    width: wp('20%'),
+    flexDirection: 'row',
+    gap: wp('1%'),
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
   addButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: 'bold',
+  },
+  categoriesList: {
+    gap: hp('2%'),
   },
   categoryContainer: {
-    marginBottom: 20,
+    marginBottom: hp('2%'),
+    backgroundColor: '#f8f9fa',
+    borderRadius: wp('3%'),
+    padding: wp('4%'),
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  categoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('2%'),
+    marginBottom: hp('1%'),
   },
   categoryTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: 'bold',
-    marginBottom: 10,
+    color: '#2c3e50',
   },
   bulkActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: hp('2%'),
+    gap: wp('2%'),
   },
   bulkButton: {
-    backgroundColor: '#007AFF',
-    padding: 8,
-    borderRadius: 5,
+    padding: hp('1%'),
+    borderRadius: wp('2%'),
     flex: 1,
-    marginHorizontal: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: wp('1%'),
+  },
+  startButton: {
+    backgroundColor: '#28a745',
+  },
+  pauseButton: {
+    backgroundColor: '#ffc107',
+  },
+  resetButton: {
+    backgroundColor: '#6c757d',
   },
   buttonText: {
     color: '#fff',
     textAlign: 'center',
+    fontSize: wp('3.5%'),
+    fontWeight: '600',
   },
   timerItem: {
-    backgroundColor: '#f5f5f5',
-    padding: 15,
-    borderRadius: 5,
-    marginBottom: 10,
+    backgroundColor: '#fff',
+    padding: wp('4%'),
+    borderRadius: wp('3%'),
+    marginBottom: hp('1%'),
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  timerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: hp('1%'),
   },
   timerName: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: 'bold',
-    marginBottom: 5,
+    color: '#2c3e50',
+    marginBottom: hp('0.5%'),
+  },
+  categoryText: {
+    fontSize: wp('3.5%'),
+    color: '#666',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  timeText: {
+    fontSize: wp('4%'),
+    color: '#2c3e50',
+    marginVertical: hp('1%'),
+  },
+  statusBadge: {
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('4%'),
+  },
+  statusText: {
+    color: '#fff',
+    fontSize: wp('3%'),
+    fontWeight: '600',
+  },
+  progressBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('2%'),
   },
   progressBar: {
-    height: 10,
-    backgroundColor: '#ddd',
-    borderRadius: 5,
-    marginVertical: 10,
+    flex: 1,
+    height: hp('1.5%'),
+    backgroundColor: '#e9ecef',
+    borderRadius: wp('1%'),
+    overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
     backgroundColor: '#007AFF',
-    borderRadius: 5,
+    borderRadius: wp('1%'),
+  },
+  progressText: {
+    fontSize: wp('3%'),
+    color: '#666',
+    width: wp('10%'),
   },
   buttonRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 10,
+    marginTop: hp('2%'),
+    gap: wp('2%'),
   },
   actionButton: {
     backgroundColor: '#007AFF',
-    padding: 8,
-    borderRadius: 5,
+    padding: hp('1%'),
+    borderRadius: wp('2%'),
     flex: 1,
-    marginHorizontal: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: wp('1%'),
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
   },
 });
 
