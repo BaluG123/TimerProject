@@ -1,4 +1,3 @@
-// src/context/ThemeContext.js
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 import { getData, storeData, STORAGE_KEYS } from '../utils/storage';
