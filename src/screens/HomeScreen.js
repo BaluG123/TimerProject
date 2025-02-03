@@ -9,7 +9,8 @@ import {
   Share,
   Platform,
   Animated,
-  Vibration
+  Vibration,
+  PermissionsAndroid
 } from 'react-native';
 import {
   widthPercentageToDP as wp,
@@ -30,6 +31,8 @@ import { Path, Svg, Circle } from 'react-native-svg';
 import { storage } from '../utils/storage';
 import LinearGradient from 'react-native-linear-gradient';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
+import RNHTMLtoPDF from 'react-native-html-to-pdf';
+import Sound from 'react-native-sound';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -38,6 +41,13 @@ const TimerItem = ({ timer, onUpdate, intervalRefs }) => {
   const scale = useSharedValue(1);
   const rotation = useSharedValue(0);
   const progressValue = useSharedValue(timer.remainingTime / timer.duration);
+
+  Sound.setCategory('Playback');
+const timerSound = new Sound('timer_complete.mp3', Sound.MAIN_BUNDLE, (error) => {
+  if (error) {
+    console.log('Failed to load sound', error);
+  }
+});
 
   const formatTime = (seconds) => {
     const hours = Math.floor(seconds / 3600);
@@ -90,7 +100,7 @@ const TimerItem = ({ timer, onUpdate, intervalRefs }) => {
       pulseAnimation();
       rotation.value = withRepeat(
         withTiming(360, { duration: 60000 }), 
-        -1, // Infinite rotation
+        -1,
         false
       );
       
@@ -102,6 +112,14 @@ const TimerItem = ({ timer, onUpdate, intervalRefs }) => {
             cancelAnimation(rotation);
             Vibration.vibrate([0, 500, 200, 500]);
             ReactNativeHapticFeedback.trigger('notificationSuccess');
+            
+            // Play sound when timer completes
+            timerSound.play((success) => {
+              if (!success) {
+                console.log('Sound playback failed');
+              }
+            });
+            
             Alert.alert(
               'Timer Complete! 🎉',
               `${timer.name} has finished!`,
@@ -291,6 +309,127 @@ const HomeScreen = ({ navigation }) => {
     setRefreshing(false);
   };
 
+  const requestStoragePermission = async () => {
+    try {
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+          {
+            title: 'Storage Permission',
+            message: 'App needs access to storage to download PDF',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      }
+      return true;
+    } catch (err) {
+      console.error('Permission error:', err);
+      return false;
+    }
+  };
+  
+  // Function to download PDF
+  const downloadPDF = async (timers) => {
+    try {
+      // First check permission
+      const hasPermission = await requestStoragePermission();
+      if (!hasPermission) {
+        Alert.alert('Permission Denied', 'Please grant storage permission to download PDF');
+        return;
+      }
+  
+      // Generate PDF
+      const options = {
+        html: createHTMLContent(timers),
+        fileName: `TimerReport_${Date.now()}`,
+        directory: 'Documents',
+        base64: true
+      };
+  
+      const file = await RNHTMLtoPDF.convert(options);
+      
+      // Get download path based on platform
+      const downloadPath = Platform.select({
+        ios: RNBlobUtil.fs.dirs.DocumentDir,
+        android: RNBlobUtil.fs.dirs.DownloadDir
+      });
+  
+      const fileName = `TimerReport_${Date.now()}.pdf`;
+      const filePath = `${downloadPath}/${fileName}`;
+  
+      // Copy file to downloads
+      await RNBlobUtil.fs.cp(
+        file.filePath,
+        filePath
+      );
+  
+      // Show success message with file location
+      Alert.alert(
+        'Download Complete', 
+        Platform.select({
+          ios: `PDF saved in Documents folder as "${fileName}"`,
+          android: `PDF downloaded in Downloads folder as "${fileName}"`
+        }),
+        [
+          { 
+            text: 'OK',
+            onPress: () => console.log('PDF downloaded successfully') 
+          }
+        ]
+      );
+  
+    } catch (error) {
+      console.error('PDF download error:', error);
+      Alert.alert('Download Error', 'Failed to download PDF');
+    }
+  };
+
+  const formatTimeForPDF = (seconds) => {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return hours > 0 
+      ? `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+      : `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+  
+  // Function to create HTML content for PDF
+  const createHTMLContent = (timers) => {
+    const currentDate = new Date().toLocaleString();
+    
+    const timerRows = timers.map(timer => `
+      <div style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 8px;">
+        <h3 style="color: #1976D2; margin: 0 0 10px 0;">${timer.name}</h3>
+        <p style="margin: 5px 0;">Category: ${timer.category}</p>
+        <p style="margin: 5px 0;">Duration: ${formatTimeForPDF(timer.duration)}</p>
+        <p style="margin: 5px 0;">Status: ${timer.status}</p>
+        <p style="margin: 5px 0;">Remaining Time: ${formatTimeForPDF(timer.remainingTime)}</p>
+        <p style="margin: 5px 0;">Created: ${new Date(timer.createdAt).toLocaleString()}</p>
+      </div>
+    `).join('');
+  
+    return `
+      <html>
+        <head>
+          <style>
+            body { font-family: Helvetica, Arial, sans-serif; padding: 20px; }
+            h1 { color: #333; text-align: center; }
+            .header { text-align: center; color: #666; margin-bottom: 30px; }
+          </style>
+        </head>
+        <body>
+          <h1>Timer Report</h1>
+          <div class="header">Generated on: ${currentDate}</div>
+          ${timerRows}
+        </body>
+      </html>
+    `;
+  };
+
+
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', loadTimers);
     return () => {
@@ -359,6 +498,25 @@ const HomeScreen = ({ navigation }) => {
 
   const exportTimers = async () => {
     try {
+      // Show download confirmation dialog
+      Alert.alert(
+        'Download PDF',
+        'Do you want to download the timer report as PDF?',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          },
+          {
+            text: 'Download',
+            onPress: async () => {
+              await downloadPDF(timers);
+            }
+          }
+        ]
+      );
+      
+      // Export JSON data
       const formattedTimers = timers.map(timer => ({
         name: timer.name,
         category: timer.category,
@@ -367,13 +525,12 @@ const HomeScreen = ({ navigation }) => {
         remainingTime: timer.remainingTime,
         createdAt: new Date(timer.createdAt).toLocaleString()
       }));
-
+  
       const exportData = JSON.stringify(formattedTimers, null, 2);
-      await Share.share({
-        message: exportData,
-        title: 'Timer Data Export'
-      });
-      Alert.alert('Success', 'Timer data exported successfully!');
+      // await Share.share({
+      //   message: exportData,
+      //   title: 'Timer Data Export'
+      // });
     } catch (error) {
       Alert.alert('Export Error', 'Failed to export timer data');
       console.error('Export error:', error);
