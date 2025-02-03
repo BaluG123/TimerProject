@@ -7,22 +7,72 @@ import {
   TouchableOpacity,
   Alert,
   Share,
-  Platform
+  Platform,
+  Animated,
+  Vibration
 } from 'react-native';
 import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp
 } from 'react-native-responsive-screen';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import{
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  useSharedValue,
+  withSequence,
+  withRepeat,
+  cancelAnimation,
+  useAnimatedProps,
+} from 'react-native-reanimated';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import { Path, Svg, Circle } from 'react-native-svg';
 import { storage } from '../utils/storage';
+import LinearGradient from 'react-native-linear-gradient';
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const TimerItem = ({ timer, onUpdate, intervalRefs }) => {
-  const [remainingTime, setRemainingTime] = useState(timer.remainingTime);
+  const [remainingTime, setRemainingTime] = React.useState(timer.remainingTime);
+  const scale = useSharedValue(1);
+  const rotation = useSharedValue(0);
+  const progressValue = useSharedValue(timer.remainingTime / timer.duration);
 
   const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return hours > 0 
+      ? `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+      : `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const CIRCLE_LENGTH = 280; // Circumference of our progress circle
+  const R = CIRCLE_LENGTH / (2 * Math.PI); // Radius
+
+  const animatedProps = useAnimatedProps(() => {
+    const strokeDashoffset = CIRCLE_LENGTH * (1 - progressValue.value);
+    return {
+      strokeDashoffset,
+    };
+  });
+
+  const containerStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { scale: scale.value },
+        { rotate: `${rotation.value}deg` },
+      ],
+    };
+  });
+
+  const pulseAnimation = () => {
+    scale.value = withSequence(
+      withSpring(1.1, { damping: 2 }),
+      withSpring(1, { damping: 2 })
+    );
+    ReactNativeHapticFeedback.trigger('impactMedium');
   };
 
   const updateTimer = async (newStatus, newRemainingTime) => {
@@ -37,17 +87,33 @@ const TimerItem = ({ timer, onUpdate, intervalRefs }) => {
 
   const handleStart = () => {
     if (timer.status === 'Paused') {
+      pulseAnimation();
+      rotation.value = withRepeat(
+        withTiming(360, { duration: 60000 }), 
+        -1, // Infinite rotation
+        false
+      );
+      
       const id = setInterval(() => {
         setRemainingTime((prev) => {
           if (prev <= 1) {
             clearInterval(id);
             updateTimer('Completed', 0);
-            Alert.alert('Timer Complete!', `${timer.name} has finished!`);
+            cancelAnimation(rotation);
+            Vibration.vibrate([0, 500, 200, 500]);
+            ReactNativeHapticFeedback.trigger('notificationSuccess');
+            Alert.alert(
+              'Timer Complete! 🎉',
+              `${timer.name} has finished!`,
+              [{ text: 'OK', onPress: () => pulseAnimation() }]
+            );
             return 0;
           }
+          progressValue.value = withTiming((prev - 1) / timer.duration);
           return prev - 1;
         });
       }, 1000);
+      
       intervalRefs.current[timer.id] = id;
       updateTimer('Running', remainingTime);
     }
@@ -57,6 +123,8 @@ const TimerItem = ({ timer, onUpdate, intervalRefs }) => {
     if (intervalRefs.current[timer.id]) {
       clearInterval(intervalRefs.current[timer.id]);
       delete intervalRefs.current[timer.id];
+      cancelAnimation(rotation);
+      pulseAnimation();
     }
     updateTimer('Paused', remainingTime);
   };
@@ -65,9 +133,12 @@ const TimerItem = ({ timer, onUpdate, intervalRefs }) => {
     if (intervalRefs.current[timer.id]) {
       clearInterval(intervalRefs.current[timer.id]);
       delete intervalRefs.current[timer.id];
+      cancelAnimation(rotation);
     }
+    progressValue.value = withTiming(1);
     setRemainingTime(timer.duration);
     updateTimer('Paused', timer.duration);
+    pulseAnimation();
   };
 
   useEffect(() => {
@@ -75,81 +146,136 @@ const TimerItem = ({ timer, onUpdate, intervalRefs }) => {
       if (intervalRefs.current[timer.id]) {
         clearInterval(intervalRefs.current[timer.id]);
         delete intervalRefs.current[timer.id];
+        cancelAnimation(rotation);
       }
     };
   }, [timer.id]);
 
-  const progress = (remainingTime / timer.duration) * 100;
   const getStatusColor = () => {
     switch (timer.status) {
-      case 'Running': return '#28a745';
-      case 'Paused': return '#ffc107';
-      case 'Completed': return '#dc3545';
-      default: return '#6c757d';
+      case 'Running': return ['#4CAF50', '#45B649'];
+      case 'Paused': return ['#FFA000', '#FF8F00'];
+      case 'Completed': return ['#F44336', '#E53935'];
+      default: return ['#757575', '#616161'];
     }
   };
 
   return (
-    <View style={styles.timerItem}>
-      <View style={styles.timerHeader}>
-        <View>
-          <Text style={styles.timerName}>{timer.name}</Text>
-          <Text style={styles.categoryText}>
-            <Icon name="folder-outline" size={wp('3.5%')} color="#666" />
-            {' '}{timer.category}
-          </Text>
+    <Animated.View style={[styles.timerItem, containerStyle]}>
+      <LinearGradient
+        colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.05)']}
+        style={styles.glassBackground}
+      >
+        <View style={styles.timerHeader}>
+          <View style={styles.timerInfo}>
+            <Text style={styles.timerName}>{timer.name}</Text>
+            <View style={styles.categoryWrapper}>
+              <Icon name="folder" size={wp('4%')} color="#666" />
+              <Text style={styles.categoryText}>{timer.category}</Text>
+            </View>
+          </View>
+          <LinearGradient
+            colors={getStatusColor()}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 0}}
+            style={styles.statusBadge}
+          >
+            <Icon 
+              name={timer.status === 'Running' ? 'timer' : timer.status === 'Completed' ? 'check-circle' : 'pause-circle-filled'} 
+              size={wp('4%')} 
+              color="#fff" 
+            />
+            <Text style={styles.statusText}>{timer.status}</Text>
+          </LinearGradient>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor() }]}>
-          <Text style={styles.statusText}>{timer.status}</Text>
-        </View>
-      </View>
 
-      <Text style={styles.timeText}>
-        <Icon name="clock-outline" size={wp('4%')} color="#666" />
-        {' '}{formatTime(remainingTime)}
-      </Text>
-      
-      <View style={styles.progressBarContainer}>
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${progress}%` }]} />
+        <View style={styles.circularProgressContainer}>
+          <Svg style={styles.svg} viewBox={`0 0 ${R * 2 + 10} ${R * 2 + 10}`}>
+            <Circle
+              cx={R + 5}
+              cy={R + 5}
+              r={R}
+              stroke="#E0E0E0"
+              strokeWidth="10"
+              fill="transparent"
+            />
+            <AnimatedCircle
+              cx={R + 5}
+              cy={R + 5}
+              r={R}
+              stroke={getStatusColor()[0]}
+              strokeWidth="10"
+              fill="transparent"
+              strokeDasharray={CIRCLE_LENGTH}
+              animatedProps={animatedProps}
+              strokeLinecap="round"
+            />
+          </Svg>
+          <View style={styles.timeDisplay}>
+            <Text style={styles.timeText}>{formatTime(remainingTime)}</Text>
+            <Text style={styles.progressText}>
+              {Math.round((remainingTime / timer.duration) * 100)}%
+            </Text>
+          </View>
         </View>
-        <Text style={styles.progressText}>{Math.round(progress)}%</Text>
-      </View>
 
-      <View style={styles.buttonRow}>
-        <TouchableOpacity 
-          style={[styles.actionButton, timer.status === 'Running' && styles.actionButtonDisabled]}
-          onPress={handleStart}
-          disabled={timer.status === 'Running' || timer.status === 'Completed'}
-        >
-          <Icon name="play" size={wp('5%')} color="#fff" />
-          <Text style={styles.buttonText}>Start</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.actionButton, timer.status !== 'Running' && styles.actionButtonDisabled]}
-          onPress={handlePause}
-          disabled={timer.status !== 'Running'}
-        >
-          <Icon name="pause" size={wp('5%')} color="#fff" />
-          <Text style={styles.buttonText}>Pause</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={handleReset}
-        >
-          <Icon name="restart" size={wp('5%')} color="#fff" />
-          <Text style={styles.buttonText}>Reset</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+        <View style={styles.buttonRow}>
+          <TouchableOpacity 
+            style={[
+              styles.actionButton,
+              timer.status === 'Running' && styles.actionButtonDisabled
+            ]}
+            onPress={handleStart}
+            disabled={timer.status === 'Running' || timer.status === 'Completed'}
+          >
+            <LinearGradient
+              colors={['#4CAF50', '#45B649']}
+              style={styles.gradientButton}
+            >
+              <Icon name="play-arrow" size={wp('5%')} color="#fff" />
+              <Text style={styles.buttonText}>Start</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[
+              styles.actionButton,
+              timer.status !== 'Running' && styles.actionButtonDisabled
+            ]}
+            onPress={handlePause}
+            disabled={timer.status !== 'Running'}
+          >
+            <LinearGradient
+              colors={['#FFA000', '#FF8F00']}
+              style={styles.gradientButton}
+            >
+              <Icon name="pause" size={wp('5%')} color="#fff" />
+              <Text style={styles.buttonText}>Pause</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={handleReset}
+          >
+            <LinearGradient
+              colors={['#757575', '#616161']}
+              style={styles.gradientButton}
+            >
+              <Icon name="refresh" size={wp('5%')} color="#fff" />
+              <Text style={styles.buttonText}>Reset</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
+    </Animated.View>
   );
 };
 
 const HomeScreen = ({ navigation }) => {
   const [timers, setTimers] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
   const intervalRefs = React.useRef({});
 
   const loadTimers = async () => {
@@ -159,10 +285,15 @@ const HomeScreen = ({ navigation }) => {
     setCategories(uniqueCategories);
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadTimers();
+    setRefreshing(false);
+  };
+
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', loadTimers);
     return () => {
-      // Clear all intervals when unmounting
       Object.values(intervalRefs.current).forEach(id => clearInterval(id));
       intervalRefs.current = {};
       unsubscribe();
@@ -171,9 +302,9 @@ const HomeScreen = ({ navigation }) => {
 
   const handleBulkAction = async (category, action) => {
     const categoryTimers = timers.filter(timer => timer.category === category);
+    Vibration.vibrate(100);
     
     for (const timer of categoryTimers) {
-      // Clear existing interval if any
       if (intervalRefs.current[timer.id]) {
         clearInterval(intervalRefs.current[timer.id]);
         delete intervalRefs.current[timer.id];
@@ -242,41 +373,46 @@ const HomeScreen = ({ navigation }) => {
         message: exportData,
         title: 'Timer Data Export'
       });
+      Alert.alert('Success', 'Timer data exported successfully!');
     } catch (error) {
       Alert.alert('Export Error', 'Failed to export timer data');
       console.error('Export error:', error);
     }
   };
+
   const renderCategory = ({ item: category }) => {
     const categoryTimers = timers.filter(timer => timer.category === category);
     
     return (
       <View style={styles.categoryContainer}>
         <View style={styles.categoryHeader}>
-          <Icon name="folder" size={wp('6%')} color="#007AFF" />
+          <Icon name="folder" size={wp('7%')} color="#1976D2" />
           <Text style={styles.categoryTitle}>{category}</Text>
+          <Text style={styles.timerCount}>
+            {categoryTimers.length} timer{categoryTimers.length !== 1 ? 's' : ''}
+          </Text>
         </View>
         
         <View style={styles.bulkActions}>
           <TouchableOpacity 
-            style={[styles.bulkButton, styles.startButton]}
+            style={[styles.bulkButton, { backgroundColor: '#4CAF50' }]}
             onPress={() => handleBulkAction(category, 'start')}
           >
-            <Icon name="play-circle" size={wp('5%')} color="#fff" />
+            <Icon name="play-circle-filled" size={wp('5%')} color="#fff" />
             <Text style={styles.buttonText}>Start All</Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            style={[styles.bulkButton, styles.pauseButton]}
+            style={[styles.bulkButton, { backgroundColor: '#FFA000' }]}
             onPress={() => handleBulkAction(category, 'pause')}
           >
-            <Icon name="pause-circle" size={wp('5%')} color="#fff" />
+            <Icon name="pause-circle-filled" size={wp('5%')} color="#fff" />
             <Text style={styles.buttonText}>Pause All</Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            style={[styles.bulkButton, styles.resetButton]}
+            style={[styles.bulkButton, { backgroundColor: '#757575' }]}
             onPress={() => handleBulkAction(category, 'reset')}
           >
-            <Icon name="restart" size={wp('5%')} color="#fff" />
+            <Icon name="refresh" size={wp('5%')} color="#fff" />
             <Text style={styles.buttonText}>Reset All</Text>
           </TouchableOpacity>
         </View>
@@ -291,6 +427,7 @@ const HomeScreen = ({ navigation }) => {
               intervalRefs={intervalRefs}
             />
           )}
+          showsVerticalScrollIndicator={false}
         />
       </View>
     );
@@ -303,7 +440,7 @@ const HomeScreen = ({ navigation }) => {
           style={styles.addButton}
           onPress={() => navigation.navigate('AddTimer')}
         >
-          <Icon name="plus" size={wp('5%')} color="#fff" />
+          <Icon name="add-circle" size={wp('6%')} color="#fff" />
           <Text style={styles.addButtonText}>Add New Timer</Text>
         </TouchableOpacity>
         
@@ -311,7 +448,7 @@ const HomeScreen = ({ navigation }) => {
           style={styles.exportButton}
           onPress={exportTimers}
         >
-          <Icon name="export" size={wp('5%')} color="#fff" />
+          <Icon name="ios-share" size={wp('5%')} color="#fff" />
           <Text style={styles.buttonText}>Export</Text>
         </TouchableOpacity>
       </View>
@@ -321,16 +458,126 @@ const HomeScreen = ({ navigation }) => {
         keyExtractor={(category) => category}
         renderItem={renderCategory}
         contentContainerStyle={styles.categoriesList}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        showsVerticalScrollIndicator={false}
       />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  timerItem: {
+    margin: wp('3%'),
+    borderRadius: wp('4%'),
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  glassBackground: {
+    padding: wp('4%'),
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+  },
+  timerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: hp('2%'),
+  },
+  timerInfo: {
+    flex: 1,
+  },
+  timerName: {
+    fontSize: wp('4.5%'),
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  categoryWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: hp('0.5%'),
+  },
+  categoryText: {
+    marginLeft: wp('1%'),
+    color: '#666',
+    fontSize: wp('3.5%'),
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('4%'),
+  },
+  statusText: {
+    color: '#fff',
+    marginLeft: wp('1%'),
+    fontSize: wp('3.5%'),
+    fontWeight: '500',
+  },
+  circularProgressContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: hp('2%'),
+    height: wp('60%'),
+  },
+  svg: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+  },
+  timeDisplay: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeText: {
+    fontSize: wp('8%'),
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: hp('1%'),
+  },
+  progressText: {
+    fontSize: wp('4%'),
+    color: '#666',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: hp('2%'),
+  },
+  actionButton: {
+    flex: 1,
+    marginHorizontal: wp('1%'),
+    borderRadius: wp('2%'),
+    overflow: 'hidden',
+  },
+  gradientButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: hp('1.5%'),
+  },
+  buttonText: {
+    color: '#fff',
+    marginLeft: wp('1%'),
+    fontSize: wp('3.5%'),
+    fontWeight: '500',
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
+  },
+
+  // Rest of the styles (unchanged)
   container: {
     flex: 1,
     padding: wp('4%'),
-    backgroundColor: '#fff',
+    backgroundColor: '#F5F5F5',
   },
   header: {
     flexDirection: 'row',
@@ -339,7 +586,7 @@ const styles = StyleSheet.create({
   },
   addButton: {
     flex: 1,
-    backgroundColor: '#007AFF',
+    backgroundColor: '#1976D2',
     padding: hp('2%'),
     borderRadius: wp('2%'),
     flexDirection: 'row',
@@ -359,7 +606,7 @@ const styles = StyleSheet.create({
     }),
   },
   exportButton: {
-    backgroundColor: '#28a745',
+    backgroundColor: '#4CAF50',
     padding: hp('2%'),
     borderRadius: wp('2%'),
     alignItems: 'center',
@@ -386,10 +633,11 @@ const styles = StyleSheet.create({
   },
   categoriesList: {
     gap: hp('2%'),
+    paddingBottom: hp('2%'),
   },
   categoryContainer: {
     marginBottom: hp('2%'),
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#fff',
     borderRadius: wp('3%'),
     padding: wp('4%'),
     ...Platform.select({
@@ -413,7 +661,16 @@ const styles = StyleSheet.create({
   categoryTitle: {
     fontSize: wp('5%'),
     fontWeight: 'bold',
-    color: '#2c3e50',
+    color: '#1976D2',
+    flex: 1,
+  },
+  timerCount: {
+    fontSize: wp('3.5%'),
+    color: '#757575',
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('4%'),
   },
   bulkActions: {
     flexDirection: 'row',
@@ -422,111 +679,25 @@ const styles = StyleSheet.create({
     gap: wp('2%'),
   },
   bulkButton: {
-    padding: hp('1%'),
+    padding: hp('1.5%'),
     borderRadius: wp('2%'),
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: wp('1%'),
-  },
-  startButton: {
-    backgroundColor: '#28a745',
-  },
-  pauseButton: {
-    backgroundColor: '#ffc107',
-  },
-  resetButton: {
-    backgroundColor: '#6c757d',
-  },
-  buttonText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontSize: wp('3.5%'),
-    fontWeight: '600',
-  },
-  timerItem: {
-    backgroundColor: '#fff',
-    padding: wp('4%'),
-    borderRadius: wp('3%'),
-    marginBottom: hp('1%'),
-    borderWidth: 1,
-    borderColor: '#e9ecef',
-  },
-  timerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: hp('1%'),
-  },
-  timerName: {
-    fontSize: wp('4.5%'),
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: hp('0.5%'),
-  },
-  categoryText: {
-    fontSize: wp('3.5%'),
-    color: '#666',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  timeText: {
-    fontSize: wp('4%'),
-    color: '#2c3e50',
-    marginVertical: hp('1%'),
-  },
-  statusBadge: {
-    paddingHorizontal: wp('2%'),
-    paddingVertical: hp('0.5%'),
-    borderRadius: wp('4%'),
-  },
-  statusText: {
-    color: '#fff',
-    fontSize: wp('3%'),
-    fontWeight: '600',
-  },
-  progressBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: wp('2%'),
-  },
-  progressBar: {
-    flex: 1,
-    height: hp('1.5%'),
-    backgroundColor: '#e9ecef',
-    borderRadius: wp('1%'),
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#007AFF',
-    borderRadius: wp('1%'),
-  },
-  progressText: {
-    fontSize: wp('3%'),
-    color: '#666',
-    width: wp('10%'),
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: hp('2%'),
-    gap: wp('2%'),
-  },
-  actionButton: {
-    backgroundColor: '#007AFF',
-    padding: hp('1%'),
-    borderRadius: wp('2%'),
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: wp('1%'),
-  },
-  actionButtonDisabled: {
-    opacity: 0.5,
-  },
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  }
 });
 
 export default HomeScreen;
